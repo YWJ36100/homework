@@ -1,0 +1,1994 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>程序是怎么学会认猫的 · 参数学习可视化</title>
+<meta name="description" content="用波动的旋钮、下山的小球和真实训练曲线，讲清 MLP 如何学习参数：权重、偏置、梯度、学习率与常见坑。">
+<style>
+  :root{
+    --bg:#090b0f;
+    --panel:#10151d;
+    --line:rgba(255,255,255,.075);
+    --ink:#e9edf4;
+    --muted:#94a1b4;
+    --dim:#6c7a8e;
+    --amber:#f2b34c;
+    --teal:#4ecdc4;
+    --coral:#ff7a66;
+    --violet:#8f8dff;
+    --sans:"Inter","PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+    --serif:"Songti SC","STSong","SimSun","Noto Serif SC",serif;
+    --mono:"JetBrains Mono","SF Mono","Consolas","Menlo",monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.78;
+    background:
+      radial-gradient(900px 620px at 84% -6%,rgba(242,179,76,.10),transparent 62%),
+      radial-gradient(760px 540px at 6% 18%,rgba(78,205,196,.055),transparent 64%),
+      var(--bg);
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    z-index:0;
+    background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+    background-size:72px 72px;
+    mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 78%);
+    -webkit-mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 78%);
+  }
+  .grain{
+    position:fixed;inset:0;z-index:90;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  ::selection{background:rgba(242,179,76,.28);color:#fff}
+  .wrap{width:min(1240px,calc(100% - 48px));margin:0 auto;position:relative;z-index:1}
+  .mono{font-family:var(--mono)}
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;height:58px;z-index:60;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 30px;
+    background:rgba(9,11,15,.74);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid rgba(255,255,255,.06);
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;color:#c7d0de}
+  .brand i{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 12px var(--amber);font-style:normal}
+  .topnav{display:flex;gap:20px}
+  .topnav a{color:var(--dim);text-decoration:none;font-size:12px;letter-spacing:.03em;transition:color .2s}
+  .topnav a:hover{color:var(--ink)}
+  .progress-line{position:absolute;left:0;right:0;bottom:-1px;height:2px}
+  .progress-line i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--amber));transition:width .1s linear}
+
+  /* ---------- hero ---------- */
+  .hero{min-height:100svh;display:flex;align-items:center;padding:130px 0 70px;position:relative}
+  .hero-grid{display:grid;grid-template-columns:1.06fr .94fr;gap:56px;align-items:center}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:11px;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);
+    margin:0 0 20px;
+  }
+  .eyebrow::before{content:"";width:26px;height:1px;background:rgba(242,179,76,.65)}
+  h1{
+    font-size:clamp(2.55rem,5.1vw,4.15rem);
+    line-height:1.17;letter-spacing:-.01em;font-weight:700;margin:0 0 26px;
+  }
+  h1 em{
+    font-style:normal;
+    background:linear-gradient(180deg,transparent 63%,rgba(242,179,76,.30) 63%,rgba(242,179,76,.30) 94%,transparent 94%);
+  }
+  .answer{
+    font-size:clamp(1.15rem,1.7vw,1.38rem);line-height:1.7;color:#e2e8f2;
+    border-left:2px solid rgba(242,179,76,.7);padding-left:18px;margin:0 0 20px;max-width:34ch;
+  }
+  .hero-sub{color:var(--muted);font-size:.98rem;max-width:47ch;margin:0}
+  .hero-tags{display:flex;gap:22px;margin-top:34px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--dim)}
+  .hero-tags span{display:flex;align-items:center;gap:7px}
+  .hero-tags span::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.7}
+  .hero-tags span:nth-child(1){color:rgba(242,179,76,.9)}
+  .hero-tags span:nth-child(2){color:rgba(78,205,196,.9)}
+  .hero-tags span:nth-child(3){color:rgba(143,141,255,.9)}
+
+  .hero-panel{
+    border:1px solid var(--line);border-radius:20px;padding:18px;
+    background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012) 60%),#0c1017;
+    box-shadow:0 40px 100px -50px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.05);
+    animation:riseIn 1s cubic-bezier(.2,.7,.2,1) both .15s;
+  }
+  .panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#7f8ca0;margin-bottom:13px}
+  .live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);font-size:9.5px}
+  .live::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal);animation:pulse 1.7s ease-in-out infinite}
+  .knob-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .knob{
+    background:rgba(255,255,255,.022);border:1px solid rgba(255,255,255,.05);border-radius:12px;
+    padding:10px 4px 7px;display:flex;flex-direction:column;align-items:center;gap:4px;
+  }
+  .knob svg{width:40px;height:40px;transform:rotate(-90deg);overflow:visible}
+  .knob circle{fill:none;stroke-width:3.4;stroke-linecap:round}
+  .knob .track{stroke:rgba(255,255,255,.07)}
+  .knob .arc{stroke:var(--teal);transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1),stroke .6s}
+  .knob .val{font-family:var(--mono);font-size:9.5px;letter-spacing:.02em;color:rgba(78,205,196,.8);transition:color .5s}
+  .hero-panel .foot{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    margin-top:13px;padding-top:11px;border-top:1px solid rgba(255,255,255,.06);
+    font-family:var(--mono);font-size:10px;color:#6f7c90;letter-spacing:.05em;
+  }
+  .hero-panel .foot b{color:var(--amber);font-weight:500}
+  .scroll-cue{
+    position:absolute;left:50%;bottom:26px;transform:translateX(-50%);
+    display:flex;flex-direction:column;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:#5c6879;
+  }
+  .scroll-cue i{display:block;width:1px;height:34px;background:linear-gradient(180deg,rgba(255,255,255,.35),transparent);animation:cue 2.2s ease-in-out infinite}
+
+  /* ---------- sections ---------- */
+  .sec{padding:104px 0;border-top:1px solid rgba(255,255,255,.055);position:relative;scroll-margin-top:72px}
+  .reveal{transition:opacity .8s ease,transform .8s cubic-bezier(.2,.7,.2,1)}
+  .js-reveal .reveal{opacity:0;transform:translateY(22px)}
+  .js-reveal .reveal.in{opacity:1;transform:none}
+  .sec-head{display:grid;grid-template-columns:52px 1fr;gap:24px;margin-bottom:42px;align-items:start}
+  .idx{
+    width:34px;height:34px;display:grid;place-items:center;border-radius:9px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--amber);
+    border:1px solid rgba(242,179,76,.28);background:rgba(242,179,76,.05);
+  }
+  h2{font-size:clamp(1.65rem,2.7vw,2.2rem);line-height:1.35;font-weight:700;letter-spacing:-.005em;margin:0 0 10px}
+  .lede{color:var(--muted);margin:0;max-width:64ch;font-size:.98rem}
+  .split{display:grid;grid-template-columns:.86fr 1.14fr;gap:52px;align-items:start}
+  .split.wide{grid-template-columns:.7fr 1.3fr;gap:46px}
+  .copy p{color:#aab5c5;margin:0 0 18px;font-size:.98rem}
+  .copy p strong{color:var(--ink);font-weight:600}
+  .def{display:flex;gap:13px;margin:0 0 18px}
+  .def-key{
+    flex:0 0 auto;width:44px;height:44px;border-radius:10px;display:grid;place-items:center;
+    font-family:var(--mono);font-size:14px;color:var(--amber);background:rgba(242,179,76,.07);border:1px solid rgba(242,179,76,.22);
+  }
+  .def-key.t{color:var(--teal);background:rgba(78,205,196,.06);border-color:rgba(78,205,196,.22)}
+  .def p{margin:0;font-size:.9rem;color:#97a4b7;line-height:1.72}
+  .def b{display:block;font-size:.98rem;color:var(--ink);font-weight:600;margin-bottom:2px}
+  .quote{
+    font-family:var(--serif);font-size:1.18rem;line-height:1.85;color:#efe6d4;
+    border-left:2px solid var(--amber);padding:2px 0 2px 18px;margin:26px 0 0;
+  }
+  .quote b{font-weight:600;color:var(--amber);font-family:var(--sans);font-size:1.02rem;letter-spacing:.02em}
+  .aside{font-family:var(--mono);font-size:10.5px;line-height:1.8;color:#657286;letter-spacing:.02em;margin-top:22px}
+
+  /* ---------- panels & controls ---------- */
+  .panel{
+    border:1px solid var(--line);border-radius:18px;padding:20px;
+    background:linear-gradient(165deg,#121823,#0b0f15 72%);
+    box-shadow:0 28px 70px -42px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .panel + .panel{margin-top:16px}
+  .panel .panel-head{margin-bottom:14px}
+  .hint{font-family:var(--mono);font-size:10.5px;line-height:1.75;color:#677489;letter-spacing:.01em;margin:13px 0 0}
+  .btn{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;white-space:nowrap;
+    border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.045);
+    color:#dfe6f1;padding:7px 13px;cursor:pointer;transition:.2s;
+  }
+  .btn:hover{background:rgba(242,179,76,.12);border-color:rgba(242,179,76,.42);color:var(--amber)}
+  .btn.primary{background:var(--amber);border-color:transparent;color:#191106;font-weight:700}
+  .btn.primary:hover{filter:brightness(1.07);color:#191106}
+  .btn:focus-visible{outline:2px solid rgba(242,179,76,.55);outline-offset:2px}
+  .ctrl{margin-top:15px}
+  .ctrl-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-family:var(--mono);font-size:11px;color:#8d9aae;margin-bottom:7px;letter-spacing:.04em}
+  .ctrl-top b{color:var(--ink);font-weight:500;font-size:12px}
+  .ctrl-top .sub{color:#66738a;font-size:10px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;display:block;width:100%;height:5px;border-radius:99px;
+    background:rgba(255,255,255,.10);outline:none;margin:0;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--amber);border:2px solid #0b0e13;
+    box-shadow:0 0 0 4px rgba(242,179,76,.13),0 2px 8px rgba(0,0,0,.5);
+    transition:box-shadow .2s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 0 6px rgba(242,179,76,.18),0 2px 8px rgba(0,0,0,.5)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--amber);border:2px solid #0b0e13;box-shadow:0 0 0 4px rgba(242,179,76,.13)}
+  input[type=range].teal::-webkit-slider-thumb{background:var(--teal);box-shadow:0 0 0 4px rgba(78,205,196,.13)}
+  input[type=range].teal::-moz-range-thumb{background:var(--teal)}
+
+  .gauge{margin-top:20px}
+  .gauge-track{
+    position:relative;height:11px;border-radius:99px;overflow:hidden;
+    background:rgba(255,255,255,.07);
+  }
+  .gauge-fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:99px;background:var(--amber);transition:width .12s linear,background .3s}
+  .gauge-thresh{position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:rgba(255,255,255,.45);z-index:2}
+  .gauge-scale{display:flex;justify-content:space-between;margin-top:7px;font-family:var(--mono);font-size:9.5px;color:#677489;letter-spacing:.04em}
+  .gauge-scale span:nth-child(2){transform:translateX(-50%)}
+  .verdict-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px}
+  .verdict{font-size:1.05rem;font-weight:600;color:var(--amber)}
+  .verdict.teal{color:var(--teal)}
+  .verdict small{display:block;font-family:var(--mono);font-size:9.5px;font-weight:400;letter-spacing:.08em;color:#6d7a8e;text-transform:uppercase;margin-top:2px}
+  .prob{font-family:var(--mono);font-size:19px;color:#dfe7f2;letter-spacing:-.01em}
+  .prob span{font-size:11px;color:#677489}
+  .eq{
+    font-family:var(--mono);font-size:11.5px;line-height:1.95;color:#93a0b4;
+    background:rgba(255,255,255,.024);border:1px solid rgba(255,255,255,.055);
+    border-radius:10px;padding:10px 13px;margin-top:16px;
+  }
+  .eq b{color:var(--amber);font-weight:500}
+  .eq em{font-style:normal;color:var(--teal)}
+
+  /* flow */
+  .flow{display:grid;grid-template-columns:1fr 22px 1fr 22px 1.12fr;gap:4px;align-items:stretch}
+  .flow-node{
+    border:1px solid rgba(255,255,255,.085);background:rgba(255,255,255,.022);
+    border-radius:12px;padding:12px;transition:border-color .35s,background .35s,box-shadow .35s,transform .35s;
+  }
+  .flow-node .ft{font-family:var(--mono);font-size:9px;letter-spacing:.13em;color:#75839a;text-transform:uppercase}
+  .flow-node h4{margin:5px 0 2px;font-size:.92rem;font-weight:600}
+  .flow-node .fd{font-size:.74rem;color:#7d8a9e;line-height:1.55}
+  .flow-node code{display:block;font-family:var(--mono);font-size:10.5px;color:var(--amber);margin-top:7px;white-space:nowrap}
+  .flow-node.active{border-color:rgba(242,179,76,.55);background:rgba(242,179,76,.065);box-shadow:0 0 30px -12px rgba(242,179,76,.55);transform:translateY(-2px)}
+  .flow-node.active .ft{color:var(--amber)}
+  .flow-arrow{display:grid;place-items:center;color:#4e5b6d;font-size:13px}
+  .loop-line{display:flex;align-items:center;gap:8px;margin:11px 0 0;font-family:var(--mono);font-size:9.5px;color:#6b788c;letter-spacing:.08em}
+  .loop-line::before{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12))}
+  .loop-line::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
+  .spark{display:block;width:100%;height:70px;margin-top:14px}
+  .hud{display:flex;flex-wrap:wrap;gap:18px;font-family:var(--mono);font-size:10.5px;color:#718096;margin-top:13px;letter-spacing:.03em}
+  .hud b{color:#dbe3ef;font-weight:500}
+  .hud .ok{color:var(--teal)}
+  .hud .warn{color:var(--coral)}
+  .canvas{display:block;width:100%}
+
+  /* learning rate */
+  .lr-grid{display:flex;flex-direction:column;gap:9px}
+  .lr-card{border:1px solid var(--line);border-radius:14px;padding:11px 14px;background:rgba(255,255,255,.018);position:relative;overflow:hidden;display:grid;grid-template-columns:156px 1fr;gap:14px;align-items:center}
+  .lr-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--c);opacity:.6}
+  .lr-card header{display:flex;align-items:baseline;justify-content:flex-start;gap:10px;font-family:var(--mono)}
+  .lr-card header b{font-size:15px;font-weight:500;color:var(--ink);letter-spacing:-.01em}
+  .lr-card .tag{font-size:9.5px;letter-spacing:.1em;color:var(--c);text-transform:uppercase}
+  .lr-card canvas{display:block;width:100%;height:108px}
+  .lr-card .note{font-size:.72rem;line-height:1.5;color:#8491a5;margin-top:4px}
+  .lr-card .steps{font-family:var(--mono);font-size:9.5px;color:#66738a;margin-top:5px;letter-spacing:.02em;min-height:1.5em}
+
+  /* charts */
+  .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .chart-card{border:1px solid var(--line);border-radius:14px;padding:13px;background:rgba(255,255,255,.016);min-width:0}
+  .chart-card .cap{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:9.5px;color:#748197;margin-bottom:5px;letter-spacing:.09em;text-transform:uppercase}
+  .chart-card canvas{display:block;width:100%;height:212px}
+  .viz3{display:grid;grid-template-columns:.95fr .95fr 1.25fr;gap:12px}
+  .viz3 .chart-card canvas{height:238px}
+  .legend{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9px;color:#677489;margin-top:8px;letter-spacing:.04em}
+  .legend i{display:block;height:5px;width:56px;border-radius:99px;background:linear-gradient(90deg,#4ecdc4,#1a222d,#f2b34c)}
+  .viz-foot{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:13px;font-family:var(--mono);font-size:10px;color:#6f7c90;letter-spacing:.03em}
+
+  /* pitfalls */
+  .pit-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .pit{border:1px solid var(--line);border-radius:14px;padding:15px;background:rgba(255,255,255,.016);transition:border-color .25s,background .25s}
+  .pit:hover{border-color:rgba(255,255,255,.15);background:rgba(255,255,255,.028)}
+  .pit svg{display:block;width:100%;height:66px;margin-bottom:10px;overflow:visible}
+  .pit h4{margin:0 0 5px;font-size:.92rem;font-weight:600;letter-spacing:.01em}
+  .pit p{margin:0;font-size:.76rem;line-height:1.65;color:#8491a5}
+  .pit .fix{margin-top:9px;font-family:var(--mono);font-size:9.5px;line-height:1.6;color:rgba(78,205,196,.95);letter-spacing:.01em}
+  .vanish rect{fill:rgba(78,205,196,.72);transform-box:fill-box;transform-origin:bottom;animation:barPulse 2.6s ease-in-out infinite}
+  .vanish rect:nth-child(2){animation-delay:.12s}
+  .vanish rect:nth-child(3){animation-delay:.24s}
+  .vanish rect:nth-child(4){animation-delay:.36s}
+  .vanish rect:nth-child(5){animation-delay:.48s}
+  .explode rect{fill:rgba(255,122,102,.8);transform-box:fill-box;transform-origin:bottom;animation:barBoom 2.2s ease-in-out infinite}
+  .explode rect:nth-child(2){animation-delay:.1s}
+  .explode rect:nth-child(3){animation-delay:.2s}
+  .explode rect:nth-child(4){animation-delay:.3s}
+  .wiggle path{stroke-dasharray:4 5;animation:dashMove 3s linear infinite}
+  .zig path{stroke-dasharray:5 6;animation:dashMove 2s linear infinite}
+
+  /* sandbox */
+  .sandbox{display:grid;grid-template-columns:.88fr 1.12fr;gap:22px;align-items:start}
+  .btn-row{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap}
+  .sb-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:18px}
+  .stat{background:rgba(255,255,255,.024);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:9px 10px;min-width:0}
+  .stat span{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.11em;color:#6b788c;text-transform:uppercase;white-space:nowrap}
+  .stat b{display:block;font-family:var(--mono);font-size:15px;font-weight:500;color:var(--ink);margin-top:3px;white-space:nowrap}
+  .sb-canvases{display:flex;flex-direction:column;gap:10px;min-width:0}
+  .sb-canvases canvas{height:238px}
+  .sb-canvases .chart-card:last-child canvas{height:102px}
+
+  footer{padding:64px 0 56px;border-top:1px solid rgba(255,255,255,.06);color:#6f7c90;font-size:.8rem}
+  .foot-strip{display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:#9aa7ba;margin-bottom:18px}
+  .foot-strip i{font-style:normal;color:#3f4b5c}
+  .foot-note{margin:0;max-width:60ch;line-height:1.8}
+
+  @keyframes pulse{0%,100%{opacity:.5;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
+  @keyframes riseIn{from{opacity:0;transform:translateY(26px) scale(.985)}to{opacity:1;transform:none}}
+  @keyframes cue{0%,100%{opacity:.25;transform:scaleY(.6);transform-origin:top}50%{opacity:.9;transform:scaleY(1);transform-origin:top}}
+  @keyframes barPulse{0%,100%{transform:scaleY(.82);opacity:.62}50%{transform:scaleY(1);opacity:1}}
+  @keyframes barBoom{0%,100%{transform:scaleY(.72)}50%{transform:scaleY(1.12)}}
+  @keyframes dashMove{to{stroke-dashoffset:-60}}
+
+  @media (max-width:1020px){
+    .hero-grid{grid-template-columns:1fr;gap:44px}
+    .hero{min-height:auto;padding-top:120px}
+    .hero-panel{max-width:540px}
+    .split{grid-template-columns:1fr;gap:34px}
+    .split.wide{grid-template-columns:1fr}
+    .viz3{grid-template-columns:1fr 1fr}
+    .viz3 .chart-card:last-child{grid-column:1/-1}
+    .pit-grid{grid-template-columns:1fr 1fr}
+    .topnav{display:none}
+  }
+  @media (max-width:760px){
+    .wrap{width:calc(100% - 36px)}
+    .sec{padding:74px 0}
+    .sec-head{grid-template-columns:1fr;gap:12px}
+    .flow{grid-template-columns:1fr;gap:8px}
+    .flow-arrow{transform:rotate(90deg);height:14px}
+    .lr-card{grid-template-columns:1fr;gap:6px}
+    .lr-card canvas{height:96px}
+    .chart-grid{grid-template-columns:1fr}
+    .viz3{grid-template-columns:1fr}
+    .viz3 .chart-card:last-child{grid-column:auto}
+    .sandbox{grid-template-columns:1fr}
+    .sb-canvases canvas{height:210px}
+    .sb-canvases .chart-card:last-child canvas{height:96px}
+    .hero-tags{gap:14px}
+    .scroll-cue{display:none}
+    h1{font-size:clamp(2.2rem,9vw,3rem)}
+  }
+  @media (max-width:420px){
+    .knob svg{width:34px;height:34px}
+    .knob .val{font-size:8.5px}
+    .topbar{padding:0 18px}
+    .sb-stats{grid-template-columns:1fr 1fr 1fr}
+    .stat b{font-size:13px}
+  }
+</style>
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand"><i></i>PARAM&nbsp;LAB</div>
+  <nav class="topnav">
+    <a href="#s2">参数</a>
+    <a href="#s3">学习三步</a>
+    <a href="#s4">梯度</a>
+    <a href="#s5">学习率</a>
+    <a href="#s6">真实曲线</a>
+    <a href="#s7">参数可视化</a>
+    <a href="#s8">常见坑</a>
+    <a href="#s9">沙盒</a>
+  </nav>
+  <div class="progress-line"><i id="progressBar"></i></div>
+</header>
+
+<main>
+  <!-- 01 HERO -->
+  <section class="hero" id="s1">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">机器学习 · 交互式科普</p>
+        <h1>程序没见过猫，<br>怎么<em>学会认猫</em>？</h1>
+        <p class="answer">靠一堆能拧的「旋钮」，<br>自己调出来的。</p>
+        <p class="hero-sub">没有规则手册，也没有人告诉它「猫有尖耳朵」。它只有一个目标：少猜错。然后一遍遍去拧那些数字。</p>
+        <div class="hero-tags">
+          <span>参数 = 旋钮</span>
+          <span>梯度 = 说明书</span>
+          <span>学习率 = 步长</span>
+        </div>
+      </div>
+      <aside class="hero-panel" aria-label="正在变化的参数旋钮示意">
+        <div class="panel-head"><span>训练中的旋钮</span><span class="live">live</span></div>
+        <div class="knob-grid" id="knobGrid"></div>
+        <div class="foot"><span>loss&nbsp; <b>0.847</b> → <b>0.092</b></span><span id="heroEpoch">epoch 237</span></div>
+      </aside>
+    </div>
+    <div class="scroll-cue" aria-hidden="true"><span>SCROLL</span><i></i></div>
+  </section>
+
+  <!-- 02 参数 -->
+  <section class="sec" id="s2">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">02</span>
+        <div>
+          <h2>参数是什么</h2>
+          <p class="lede">模型内部没有一句「如果耳朵是尖的，就是猫」。只有一堆可调的数字，和它们之间的乘法、加法。</p>
+        </div>
+      </div>
+      <div class="split">
+        <div class="copy">
+          <div class="def">
+            <div class="def-key">W</div>
+            <p><b>权重 Weight · 输入有多重要</b>W 越大，这个输入对结论的影响越大；W 接近 0，就等于没听见。</p>
+          </div>
+          <div class="def">
+            <div class="def-key t">b</div>
+            <p><b>偏置 Bias · 门槛 / 起点</b>什么都不看时，模型默认偏向哪一边。b 越大，越容易判成「是」。</p>
+          </div>
+          <div class="def">
+            <div class="def-key" style="color:#8f8dff;background:rgba(143,141,255,.06);border-color:rgba(143,141,255,.22)">↻</div>
+            <p><b>训练 = 自动找一组好旋钮</b>人只负责搭结构、给数据、定目标；数字怎么拧，交给训练过程。</p>
+          </div>
+          <p class="aside">真实网络有成千上万、甚至上亿个 W 和 b。但每一个的道理，都和下面这一个神经元一样。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>一个神经元 · 可交互</span><span class="live">drag</span></div>
+          <div class="gauge">
+            <div class="gauge-track">
+              <div class="gauge-fill" id="s2Fill"></div>
+              <div class="gauge-thresh"></div>
+            </div>
+            <div class="gauge-scale"><span>0 · 不是猫</span><span>0.5</span><span>1 · 是猫</span></div>
+          </div>
+          <div class="verdict-row">
+            <div class="verdict" id="s2Verdict">这是猫<small>model output</small></div>
+            <div class="prob" id="s2Prob">0.672 <span>p</span></div>
+          </div>
+          <div class="eq" id="s2Eq"></div>
+          <div class="ctrl">
+            <div class="ctrl-top"><span>权重 W</span><b id="s2Wv">+2.40</b></div>
+            <input id="s2W" type="range" min="-6" max="6" step="0.05" value="2.4" aria-label="权重 W">
+          </div>
+          <div class="ctrl">
+            <div class="ctrl-top"><span>偏置 b <span class="sub">门槛</span></span><b id="s2Bv">−1.20</b></div>
+            <input id="s2B" type="range" min="-6" max="6" step="0.05" value="-1.2" aria-label="偏置 b">
+          </div>
+          <div class="ctrl">
+            <div class="ctrl-top"><span>输入 x <span class="sub">耳朵尖度</span></span><b id="s2Xv">0.80</b></div>
+            <input id="s2X" class="teal" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="输入 x">
+          </div>
+          <p class="hint">拖动滑块，把判定从「不是猫」翻到「是猫」。这就是一个参数在起作用的全过程。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 学习三步 -->
+  <section class="sec" id="s3">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">03</span>
+        <div>
+          <h2>学习三步</h2>
+          <p class="lede">一次学习，就是一次完整的「猜 → 比 → 调」。看板上是一组真实的数字在跑。</p>
+        </div>
+      </div>
+      <div class="split">
+        <div class="copy">
+          <p><strong>前向：先猜一个答案。</strong>输入从一层流到下一层，算出概率 p。</p>
+          <p><strong>算损失：猜的和正确答案差多少。</strong>交叉熵把「差多远」压成一个数，越差越大。</p>
+          <p><strong>反向 + 更新：反推旋钮往哪拧、拧多少。</strong>算出每个参数的梯度，然后真的挪一步。</p>
+          <p class="quote">重复「<b>猜 → 比 → 调</b>」，<br>就学会了。</p>
+          <p class="aside">这里只有 2 个参数：W 和 b。真实网络里，同样的动作会被并行执行几百万次。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>训练循环 · 单样本</span><button class="btn" id="s3Reset" type="button">重置</button></div>
+          <div class="flow">
+            <div class="flow-node" data-stage="0">
+              <span class="ft">step 1</span>
+              <h4>前向</h4>
+              <div class="fd">先猜一个答案</div>
+              <code id="s3Pred">p = 0.471</code>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-node" data-stage="1">
+              <span class="ft">step 2</span>
+              <h4>算损失</h4>
+              <div class="fd">和正确答案差多少</div>
+              <code id="s3Loss">L = 0.753</code>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">→</div>
+            <div class="flow-node" data-stage="2">
+              <span class="ft">step 3</span>
+              <h4>反向 + 更新</h4>
+              <div class="fd">往哪拧、拧多少</div>
+              <code id="s3Delta">Δw = +0.114</code>
+            </div>
+          </div>
+          <div class="loop-line">回到前向，重复</div>
+          <canvas id="s3Spark" class="spark" aria-label="损失下降曲线"></canvas>
+          <div class="hud">
+            <span>W <b id="s3W">-0.90</b></span>
+            <span>b <b id="s3B">0.20</b></span>
+            <span>步数 <b id="s3N">0</b></span>
+            <span class="ok" id="s3State">训练中</span>
+          </div>
+          <p class="hint">目标：把 p 推到 1（这确实是猫）。看着 W、b 一起被拧，损失一路往下掉。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 梯度 -->
+  <section class="sec" id="s4">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">04</span>
+        <div>
+          <h2>梯度</h2>
+          <p class="lede">梯度是「往哪拧、拧多少」的说明书：每个参数都有一句，写着自己的坡度和方向。</p>
+        </div>
+      </div>
+      <div class="split">
+        <div class="copy">
+          <p><strong>梯度 = 损失对每个参数的偏导。</strong>它告诉你：这个旋钮往哪边拧会让损失变小，以及坡有多陡。</p>
+          <p><strong>类比：蒙眼下山。</strong>看不见谷底在哪，只能用脚感受哪边更低，然后朝那边迈一步。坡越陡，说明这一步越值得迈大一点。</p>
+          <p><strong>但它只看脚下。</strong>梯度是局部信息，不保证一步到终点，也可能掉进局部低点。</p>
+          <p class="quote">不用知道山在哪，<br>只要每一步都<strong>往下</strong>。</p>
+          <p class="aside">图中曲线：L(w) = ½w² + 0.06w⁴。小球每次沿 −L′(w) 方向移动，步长由学习率决定。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>沿梯度下山</span><button class="btn" id="s4Reset" type="button">重新开始</button></div>
+          <canvas id="s4Canvas" class="canvas" style="height:330px" aria-label="小球沿损失曲线下降"></canvas>
+          <div class="hud">
+            <span>梯度 <b id="s4Grad">5.72</b></span>
+            <span>第 <b id="s4Steps">0</b> 步</span>
+            <span class="ok" id="s4State">等待出发</span>
+          </div>
+          <p class="hint">点击曲线任意位置，把小球放到那里；它会沿当前位置最陡的下坡方向迈步。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 学习率 -->
+  <section class="sec" id="s5">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">05</span>
+        <div>
+          <h2>学习率</h2>
+          <p class="lede">学习率不是学出来的，是人设定的超参数。它决定每次拧旋钮的「幅度」。</p>
+        </div>
+      </div>
+      <div class="split">
+        <div class="copy">
+          <p><strong>太小：走得太慢。</strong>每一步只挪一丁点，训练久得让人怀疑人生，还容易卡在半路。</p>
+          <p><strong>太大：跨过头，震荡。</strong>一步越过谷底，在两边来回弹；再大就直接发散，参数飞出去。</p>
+          <p><strong>合适：稳定靠近。</strong>既不磨蹭，也不乱跳，几步就能落到谷底附近。</p>
+          <p class="quote">学习率不是「越大越好」，<br>是<strong>刚刚好</strong>最好。</p>
+          <p class="aside">实际训练常用 1e-4 ~ 1e-2，还会配合预热（warmup）与衰减（decay）。同一座山，三种步长，结局完全不同。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span>同一起点 · 三种步长</span>
+            <button class="btn" id="s5Replay" type="button">重放</button>
+          </div>
+          <div class="lr-grid">
+            <div class="lr-card" style="--c:#4ecdc4">
+              <div>
+                <header><b>0.03</b><span class="tag">太慢</span></header>
+                <div class="note">每一小步都正确，但太久才到。</div>
+                <div class="steps" id="lrSteps0">等待开始</div>
+              </div>
+              <canvas id="lrChart0" aria-label="学习率 0.03 的下山轨迹"></canvas>
+            </div>
+            <div class="lr-card" style="--c:#f2b34c">
+              <div>
+                <header><b>0.35</b><span class="tag">合适</span></header>
+                <div class="note">几步就滑到谷底，稳。</div>
+                <div class="steps" id="lrSteps1">等待开始</div>
+              </div>
+              <canvas id="lrChart1" aria-label="学习率 0.35 的下山轨迹"></canvas>
+            </div>
+            <div class="lr-card" style="--c:#ff7a66">
+              <div>
+                <header><b>0.95</b><span class="tag">震荡</span></header>
+                <div class="note">来回跨过谷底，越荡越远。</div>
+                <div class="steps" id="lrSteps2">等待开始</div>
+              </div>
+              <canvas id="lrChart2" aria-label="学习率 0.95 的下山轨迹"></canvas>
+            </div>
+          </div>
+          <p class="hint">三张图同样的起点 w = 2.20，同样的迭代次数；只差每次迈多大。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 真实曲线 -->
+  <section class="sec" id="s6">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">06</span>
+        <div>
+          <h2>真实曲线</h2>
+          <p class="lede">训练到底有没有用，不看感觉，看两条线：损失往下、准确率往上。</p>
+        </div>
+      </div>
+      <div class="split wide">
+        <div class="copy">
+          <p><strong>损失下降 = 在学。</strong>每次更新后，模型在训练数据上的「意外程度」应该变小。</p>
+          <p><strong>准确率上升 = 学对。</strong>这里画的是<strong>测试集</strong>准确率：模型没见过这些点，它依然能分对。</p>
+          <p><strong>两条线要一起看。</strong>损失在降、测试准确率却停滞或回落，就是过拟合的信号，下一节会讲。</p>
+          <p class="quote">一个 2-10-1 的小 MLP，<br>在双月数据上真的训练了 <strong>240 轮</strong>。</p>
+          <p class="aside">所有曲线都由页面里的 JavaScript 实时训练得到，不是贴图。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span>训练记录 · 240 轮</span><span class="mono" id="sixStat">测试准确率 —</span></div>
+          <div class="chart-grid">
+            <div class="chart-card">
+              <div class="cap"><span>损失 loss</span><span>越低越好</span></div>
+              <canvas id="lossChart" aria-label="损失随训练轮次下降"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="cap"><span>准确率 accuracy</span><span>越高越好</span></div>
+              <canvas id="accChart" aria-label="测试准确率随训练轮次上升"></canvas>
+            </div>
+          </div>
+          <p class="hint">横轴：训练轮次（epoch）；纵轴：损失 / 测试集准确率。曲线会从左上、右上，慢慢拉平。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 参数可视化 -->
+  <section class="sec" id="s7">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">07</span>
+        <div>
+          <h2>参数可视化</h2>
+          <p class="lede">把参数画出来，才能看见「学习」到底改变了什么形状。</p>
+        </div>
+      </div>
+      <div class="split wide">
+        <div class="copy">
+          <p><strong>权重热力图。</strong>每一格是一个权重：暖色为正、冷色为负。训练前是一片杂乱，训练后逐渐出现分工。</p>
+          <p><strong>权重分布。</strong>随机初始化的权重像一团乱麻；训练会把它们推成有结构的分布。</p>
+          <p><strong>决策边界。</strong>模型在平面上划出的「是 / 不是」分界。边界越贴合数据，说明学得越好。</p>
+          <p class="quote">调参，就是让这些图<br><strong>从乱变有序</strong>。</p>
+          <p class="aside">下面三张图来自同一个模型。点「重新训练一次」，看初始化如何影响最终结果。</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span>同一个模型 · 三种视角</span>
+            <button class="btn" id="retrain" type="button">重新训练一次</button>
+          </div>
+          <div class="viz3">
+            <div class="chart-card">
+              <div class="cap"><span>权重热力图</span><span>W₁</span></div>
+              <canvas id="heatmap" aria-label="第一层权重热力图"></canvas>
+              <div class="legend"><span>负</span><i></i><span>正</span></div>
+            </div>
+            <div class="chart-card">
+              <div class="cap"><span>权重分布</span><span>全部参数</span></div>
+              <canvas id="hist" aria-label="参数分布直方图"></canvas>
+              <div class="legend"><span>均值 μ</span><i style="background:linear-gradient(90deg,#4ecdc4,#4ecdc4)"></i><span>±σ</span></div>
+            </div>
+            <div class="chart-card">
+              <div class="cap"><span>决策边界</span><span>橙=猫 · 青=非猫</span></div>
+              <canvas id="boundary" aria-label="二维决策边界与数据点"></canvas>
+            </div>
+          </div>
+          <div class="viz-foot">
+            <span id="sevenStats">240 轮 · loss — · 测试 —</span>
+            <span>2-10-1 · tanh · Adam</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 常见坑 -->
+  <section class="sec" id="s8">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">08</span>
+        <div>
+          <h2>常见坑</h2>
+          <p class="lede">训练不收敛，通常不是「模型不聪明」，而是这四个地方出了事。</p>
+        </div>
+      </div>
+      <div class="pit-grid">
+        <article class="pit">
+          <svg viewBox="0 0 160 66" class="vanish" aria-hidden="true">
+            <rect x="18" y="16" width="12" height="36" rx="3"/>
+            <rect x="50" y="24" width="12" height="28" rx="3"/>
+            <rect x="82" y="33" width="12" height="19" rx="3"/>
+            <rect x="114" y="40" width="12" height="12" rx="3"/>
+            <rect x="146" y="45" width="12" height="7" rx="3"/>
+            <path d="M14 56H152" stroke="rgba(255,255,255,.12)" stroke-width="1"/>
+          </svg>
+          <h4>梯度消失</h4>
+          <p>信号层层相乘越来越小，前面的层几乎收不到有效的「说明书」，学不动。</p>
+          <div class="fix">→ ReLU · 残差 · 归一化</div>
+        </article>
+        <article class="pit">
+          <svg viewBox="0 0 160 66" class="explode" aria-hidden="true">
+            <rect x="22" y="40" width="14" height="12" rx="3"/>
+            <rect x="54" y="30" width="14" height="22" rx="3"/>
+            <rect x="86" y="20" width="14" height="32" rx="3"/>
+            <rect x="118" y="10" width="14" height="42" rx="3"/>
+            <path d="M14 56H152" stroke="rgba(255,255,255,.12)" stroke-width="1"/>
+          </svg>
+          <h4>梯度爆炸</h4>
+          <p>梯度越乘越大，参数一步飞出地图，损失直接变成 NaN。</p>
+          <div class="fix">→ 梯度裁剪 · 合适初始化</div>
+        </article>
+        <article class="pit">
+          <svg viewBox="0 0 160 66" class="wiggle" aria-hidden="true">
+            <path d="M10 46C20 8 30 54 40 16S58 50 70 20S88 48 100 24S120 44 132 30S146 40 152 34" fill="none" stroke="rgba(255,122,102,.85)" stroke-width="1.8"/>
+            <path d="M10 38C48 35 96 28 152 26" fill="none" stroke="rgba(78,205,196,.8)" stroke-width="1.6"/>
+            <g fill="rgba(255,255,255,.55)">
+              <circle cx="20" cy="30" r="2"/><circle cx="36" cy="44" r="2"/><circle cx="52" cy="24" r="2"/>
+              <circle cx="68" cy="40" r="2"/><circle cx="84" cy="28" r="2"/><circle cx="102" cy="36" r="2"/>
+              <circle cx="120" cy="26" r="2"/><circle cx="138" cy="34" r="2"/>
+            </g>
+          </svg>
+          <h4>过拟合</h4>
+          <p>训练集背得滚瓜烂熟，连噪声都记住了；一换新数据就原形毕露。</p>
+          <div class="fix">→ 更多数据 · 正则 · 早停</div>
+        </article>
+        <article class="pit">
+          <svg viewBox="0 0 160 66" class="zig" aria-hidden="true">
+            <path d="M12 46L36 18L60 44L84 16L108 42L132 20L150 34" fill="none" stroke="rgba(242,179,76,.9)" stroke-width="2"/>
+            <circle cx="12" cy="46" r="3" fill="#f2b34c"/>
+          </svg>
+          <h4>学习率失当</h4>
+          <p>太小像原地踏步，太大像喝醉下山；合适的那一档，往往藏在中间。</p>
+          <div class="fix">→ 扫描 · warmup · 衰减</div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 沙盒 -->
+  <section class="sec" id="s9">
+    <div class="wrap reveal">
+      <div class="sec-head">
+        <span class="idx">09</span>
+        <div>
+          <h2>自己拧一次</h2>
+          <p class="lede">机器学习 = 让机器自己拧旋钮，直到拧对。现在轮到你决定它的步长。</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="sandbox">
+          <div class="sb-controls">
+            <div class="panel-head"><span>实时训练沙盒</span><span class="live">本地运行</span></div>
+            <p style="font-size:.85rem;color:#93a0b4;margin:0 0 6px;line-height:1.7">模型：2-10-1 的 MLP，双月数据，Adam 优化器。改学习率，再按开始。</p>
+            <div class="ctrl">
+              <div class="ctrl-top"><span>学习率 lr</span><b id="sbLrVal">0.060</b></div>
+              <input id="sbLr" type="range" min="0.002" max="0.2" step="0.002" value="0.06" aria-label="沙盒学习率">
+            </div>
+            <div class="btn-row">
+              <button class="btn primary" id="sbToggle" type="button">开始训练</button>
+              <button class="btn" id="sbReset" type="button">重置</button>
+            </div>
+            <div class="sb-stats">
+              <div class="stat"><span>轮次</span><b id="sbEpoch">0</b></div>
+              <div class="stat"><span>loss</span><b id="sbLoss">—</b></div>
+              <div class="stat"><span>测试准确率</span><b id="sbAcc">—</b></div>
+            </div>
+            <p class="hint">把 lr 拉到 0.2 看曲线抖起来；拉到 0.005 看它爬得有多慢。灰点是训练数据，背景颜色是模型此刻的判定。</p>
+          </div>
+          <div class="sb-canvases">
+            <div class="chart-card">
+              <div class="cap"><span>决策边界</span><span id="sbStatus">准备中</span></div>
+              <canvas id="sbBoundary" aria-label="沙盒模型的决策边界"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="cap"><span>训练损失</span><span>实时</span></div>
+              <canvas id="sbLossChart" aria-label="沙盒训练损失曲线"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="quote" style="margin-top:34px">参数 = 旋钮　｜　梯度 = 说明书　｜　学习率 = 步长</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-strip">
+      <span>MLP</span><i>/</i><span>BACKPROP</span><i>/</i><span>GRADIENT DESCENT</span><i>/</i><span>PARAM VISUALIZATION</span>
+    </div>
+    <p class="foot-note">页面里的所有模型、曲线与决策边界，均由浏览器本地 JavaScript 实时计算，没有外部依赖，也没有预渲染的图片。模型很小，道理不小。</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var el = function (id) { return document.getElementById(id); };
+  var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+  var lerp = function (a, b, t) { return a + (b - a) * t; };
+  var rnd = function (a, b) { return a + Math.random() * (b - a); };
+  var TAU = Math.PI * 2;
+
+  function hexA(hex, a) {
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+
+  function gauss() {
+    var u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+  }
+
+  function makeMoons(n, noise) {
+    var pts = [];
+    for (var i = 0; i < n; i++) {
+      var label = i % 2;
+      var t = Math.random() * Math.PI;
+      var x, y;
+      if (label === 0) {
+        x = Math.cos(t) * 0.8 - 0.22;
+        y = Math.sin(t) * 0.8 - 0.18;
+      } else {
+        x = Math.cos(t) * 0.8 + 0.22;
+        y = -Math.sin(t) * 0.8 + 0.18;
+      }
+      x += gauss() * noise;
+      y += gauss() * noise;
+      pts.push({ x: x, y: y, label: label });
+    }
+    return pts;
+  }
+
+  /* ---------- 迷你 MLP（单隐层，全批量 Adam） ---------- */
+  function createModel(H) {
+    var oB1 = 2 * H, oW2 = 3 * H, oB2 = 4 * H, n = 4 * H + 1;
+    var p = new Float64Array(n);
+    for (var k = 0; k < H; k++) {
+      p[k * 2] = rnd(-1.2, 1.2);
+      p[k * 2 + 1] = rnd(-1.2, 1.2);
+      p[oB1 + k] = rnd(-0.4, 0.4);
+      p[oW2 + k] = rnd(-0.9, 0.9) / Math.sqrt(H);
+    }
+    p[oB2] = rnd(-0.1, 0.1);
+    var m = new Float64Array(n), v = new Float64Array(n);
+    var h = new Float64Array(H);
+    var t = 0;
+
+    function predict(x, y) {
+      for (var j = 0; j < H; j++) {
+        h[j] = Math.tanh(p[j * 2] * x + p[j * 2 + 1] * y + p[oB1 + j]);
+      }
+      var z = p[oB2];
+      for (var q = 0; q < H; q++) z += p[oW2 + q] * h[q];
+      return 1 / (1 + Math.exp(-z));
+    }
+
+    function trainEpoch(data, lr) {
+      var g = new Float64Array(n);
+      var loss = 0, correct = 0, s, j, pred, dz, dh;
+      for (s = 0; s < data.length; s++) {
+        var d = data[s];
+        pred = predict(d.x, d.y);
+        loss += d.label ? -Math.log(pred + 1e-9) : -Math.log(1 - pred + 1e-9);
+        if ((pred > 0.5 ? 1 : 0) === d.label) correct++;
+        dz = pred - d.label;
+        for (j = 0; j < H; j++) {
+          g[oW2 + j] += dz * h[j];
+          dh = dz * p[oW2 + j] * (1 - h[j] * h[j]);
+          g[oB1 + j] += dh;
+          g[j * 2] += dh * d.x;
+          g[j * 2 + 1] += dh * d.y;
+        }
+        g[oB2] += dz;
+      }
+      t++;
+      var c1 = 1 - Math.pow(0.9, t), c2 = 1 - Math.pow(0.999, t);
+      var inv = 1 / data.length;
+      for (s = 0; s < n; s++) {
+        var gt = g[s] * inv;
+        m[s] = 0.9 * m[s] + 0.1 * gt;
+        v[s] = 0.999 * v[s] + 0.001 * gt * gt;
+        p[s] -= lr * (m[s] / c1) / (Math.sqrt(v[s] / c2) + 1e-8);
+      }
+      return { loss: loss / data.length, acc: correct / data.length };
+    }
+
+    return { H: H, p: p, predict: predict, trainEpoch: trainEpoch };
+  }
+
+  function evaluate(model, data) {
+    var ok = 0;
+    for (var i = 0; i < data.length; i++) {
+      var d = data[i];
+      if ((model.predict(d.x, d.y) > 0.5 ? 1 : 0) === d.label) ok++;
+    }
+    return ok / data.length;
+  }
+
+  /* ---------- 渲染工具 ---------- */
+  function makeRenderer(canvas, render) {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    function redraw() {
+      var rect = canvas.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return;
+      var w = Math.round(rect.width), h = Math.round(rect.height);
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+      var ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      render(ctx, w, h);
+    }
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(redraw).observe(canvas);
+    } else {
+      window.addEventListener('resize', redraw);
+    }
+    redraw();
+    return redraw;
+  }
+
+  function animate(duration, onUpdate, onDone) {
+    var start = performance.now();
+    var raf = 0;
+    function frame(now) {
+      var t = clamp((now - start) / duration, 0, 1);
+      onUpdate(t);
+      if (t < 1) raf = requestAnimationFrame(frame);
+      else if (onDone) onDone();
+    }
+    raf = requestAnimationFrame(frame);
+    return function () { cancelAnimationFrame(raf); };
+  }
+
+  function onVisible(node, cb) {
+    if (!node) return;
+    if (!('IntersectionObserver' in window)) { cb(); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) { cb(); io.disconnect(); }
+      });
+    }, { threshold: 0.18 });
+    io.observe(node);
+  }
+
+  /* ---------- 共享数据与主模型 ---------- */
+  var TRAIN = makeMoons(320, 0.12);
+  var TEST = makeMoons(160, 0.12);
+  var HIDDEN = 10;
+  var mainModel = createModel(HIDDEN);
+  var mainHist = { loss: [], acc: [] };
+
+  function fitMain() {
+    mainModel = createModel(HIDDEN);
+    mainHist = { loss: [], acc: [] };
+    for (var e = 0; e < 240; e++) {
+      var r = mainModel.trainEpoch(TRAIN, 0.05);
+      mainHist.loss.push(r.loss);
+      mainHist.acc.push(evaluate(mainModel, TEST));
+    }
+  }
+  fitMain();
+
+  /* ================= 01 HERO 旋钮 ================= */
+  (function heroKnobs() {
+    var grid = el('knobGrid');
+    if (!grid) return;
+    var C = TAU * 18;
+    var items = [];
+    for (var i = 0; i < 20; i++) {
+      var cell = document.createElement('div');
+      cell.className = 'knob';
+      cell.innerHTML = '<svg viewBox="0 0 48 48" aria-hidden="true">' +
+        '<circle class="track" cx="24" cy="24" r="18"></circle>' +
+        '<circle class="arc" cx="24" cy="24" r="18" stroke-dasharray="' + C + '" stroke-dashoffset="' + C + '"></circle>' +
+        '</svg><span class="val">0.00</span>';
+      grid.appendChild(cell);
+      items.push({
+        arc: cell.querySelector('.arc'),
+        val: cell.querySelector('.val'),
+        v: rnd(-1, 1)
+      });
+    }
+    function tick() {
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        it.v += rnd(-0.14, 0.14) + (0.15 - it.v) * 0.015;
+        if (Math.random() < 0.035) it.v = rnd(-1, 1);
+        it.v = clamp(it.v, -1, 1);
+        var frac = Math.abs(it.v);
+        it.arc.setAttribute('stroke-dashoffset', (C * (1 - frac)).toFixed(2));
+        var pos = it.v >= 0;
+        it.arc.style.stroke = pos ? '#f2b34c' : '#4ecdc4';
+        it.val.textContent = (pos ? '+' : '') + it.v.toFixed(2);
+        it.val.style.color = pos ? 'rgba(242,179,76,.78)' : 'rgba(78,205,196,.78)';
+      }
+    }
+    tick();
+    setInterval(tick, 620);
+  })();
+
+  /* ================= 02 参数 ================= */
+  (function section2() {
+    var wEl = el('s2W'), bEl = el('s2B'), xEl = el('s2X');
+    if (!wEl) return;
+    var fill = el('s2Fill'), verdict = el('s2Verdict'), prob = el('s2Prob'), eq = el('s2Eq');
+    var wv = el('s2Wv'), bv = el('s2Bv'), xv = el('s2Xv');
+
+    function render() {
+      var W = parseFloat(wEl.value), b = parseFloat(bEl.value), x = parseFloat(xEl.value);
+      var z = W * x + b;
+      var p = 1 / (1 + Math.exp(-z));
+      var pos = p >= 0.5;
+      fill.style.width = (p * 100).toFixed(2) + '%';
+      fill.style.background = pos
+        ? 'linear-gradient(90deg,rgba(242,179,76,.55),#f2b34c)'
+        : 'linear-gradient(90deg,rgba(78,205,196,.45),#4ecdc4)';
+      verdict.innerHTML = (pos ? '这是猫' : '这不是猫') + '<small>model output</small>';
+      verdict.className = 'verdict' + (pos ? '' : ' teal');
+      prob.innerHTML = p.toFixed(3) + ' <span>p</span>';
+      eq.innerHTML = 'z = <b>' + W.toFixed(2) + '</b> × ' + x.toFixed(2) + ' + (' + (b >= 0 ? '+' : '') + b.toFixed(2) + ') = <b>' + z.toFixed(2) + '</b><br>' +
+        'p = <em>σ</em>(z) = <em>' + p.toFixed(3) + '</em>';
+      wv.textContent = (W >= 0 ? '+' : '') + W.toFixed(2);
+      bv.textContent = (b >= 0 ? '+' : '−') + Math.abs(b).toFixed(2);
+      xv.textContent = x.toFixed(2);
+    }
+    [wEl, bEl, xEl].forEach(function (input) {
+      input.addEventListener('input', render);
+    });
+    render();
+  })();
+
+  /* ================= 03 学习三步 ================= */
+  (function section3() {
+    var sparkCanvas = el('s3Spark');
+    if (!sparkCanvas) return;
+    var stageNodes = [
+      document.querySelector('[data-stage="0"]'),
+      document.querySelector('[data-stage="1"]'),
+      document.querySelector('[data-stage="2"]')
+    ];
+    var state = { w: -0.9, b: 0.2, x: 0.8, label: 1, hist: [], steps: 0, stage: 0, timer: null, started: false };
+
+    function sigmoid(z) { return 1 / (1 + Math.exp(-z)); }
+    function pred() { return sigmoid(state.w * state.x + state.b); }
+
+    var sparkDraw = makeRenderer(sparkCanvas, function (ctx, w, h) {
+      ctx.clearRect(0, 0, w, h);
+      var pad = 6;
+      var data = state.hist;
+      if (data.length < 2) {
+        ctx.fillStyle = 'rgba(255,255,255,.07)';
+        ctx.fillRect(pad, h - 1, w - pad * 2, 1);
+        return;
+      }
+      var max = Math.max.apply(null, data), min = Math.min.apply(null, data);
+      var span = Math.max(0.02, max - min);
+      ctx.beginPath();
+      for (var i = 0; i < data.length; i++) {
+        var px = pad + (w - pad * 2) * i / (data.length - 1);
+        var py = h - pad - (data[i] - min) / span * (h - pad * 2);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = '#4ecdc4';
+      ctx.lineWidth = 1.8;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.lineTo(w - pad, h - pad);
+      ctx.lineTo(pad, h - pad);
+      ctx.closePath();
+      var grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, 'rgba(78,205,196,.20)');
+      grad.addColorStop(1, 'rgba(78,205,196,0)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+    });
+
+    function setStage(idx) {
+      for (var i = 0; i < stageNodes.length; i++) {
+        if (!stageNodes[i]) continue;
+        stageNodes[i].classList.toggle('active', i === idx);
+      }
+    }
+
+    function updateNums() {
+      el('s3W').textContent = state.w.toFixed(2);
+      el('s3B').textContent = state.b.toFixed(2);
+      el('s3N').textContent = state.steps;
+      sparkDraw();
+    }
+
+    function stop(message) {
+      if (state.timer) { clearInterval(state.timer); state.timer = null; }
+      el('s3State').textContent = message;
+    }
+
+    function tick() {
+      var stage = state.stage % 3;
+      setStage(stage);
+      var p = pred();
+      if (stage === 0) {
+        el('s3Pred').textContent = 'p = ' + p.toFixed(3);
+      } else if (stage === 1) {
+        var loss = -(state.label * Math.log(p) + (1 - state.label) * Math.log(1 - p));
+        state.hist.push(loss);
+        if (state.hist.length > 60) state.hist.shift();
+        el('s3Loss').textContent = 'L = ' + loss.toFixed(3);
+        sparkDraw();
+      } else {
+        var g = p - state.label;
+        var lr = 0.9;
+        var dw = -lr * g * state.x;
+        state.w += dw;
+        state.b += -lr * g;
+        state.steps++;
+        el('s3Delta').textContent = 'Δw = ' + (dw >= 0 ? '+' : '') + dw.toFixed(3);
+        updateNums();
+        if (p > 0.985 || state.steps >= 40) {
+          setStage(2);
+          stop('已学会 · p≈0.99');
+          return;
+        }
+      }
+      state.stage++;
+    }
+
+    function start() {
+      if (state.timer) clearInterval(state.timer);
+      state.started = true;
+      state.timer = setInterval(tick, 480);
+    }
+
+    function reset() {
+      if (state.timer) clearInterval(state.timer);
+      state.timer = null;
+      state.w = -0.9; state.b = 0.2; state.steps = 0; state.stage = 0; state.hist = [];
+      el('s3Pred').textContent = 'p = ' + pred().toFixed(3);
+      el('s3Loss').textContent = 'L = 0.753';
+      el('s3Delta').textContent = 'Δw = +0.114';
+      el('s3State').textContent = '训练中';
+      setStage(-1);
+      updateNums();
+      start();
+    }
+
+    el('s3Reset').addEventListener('click', reset);
+    updateNums();
+    onVisible(el('s3'), function () { if (!state.started) { state.started = true; start(); } });
+  })();
+
+  /* ================= 04 梯度 · 下山 ================= */
+  var FW = function (w) { return 0.5 * w * w + 0.06 * Math.pow(w, 4); };
+  var DW = function (w) { return w + 0.24 * Math.pow(w, 3); };
+
+  (function section4() {
+    var canvas = el('s4Canvas');
+    if (!canvas) return;
+    var XMIN = -3, XMAX = 3, YMAX = 8.8;
+    var v = { w: 2.35, from: 2.35, to: 2.35, t0: 0, animating: false, steps: 0, trail: [2.35], done: false, angle: 0, started: false, raf: 0 };
+
+    function geom(w, h) {
+      var pl = 22, pr = 22, pt = 30, pb = 30;
+      return {
+        pl: pl, pr: pr, pt: pt, pb: pb,
+        x: function (ww) { return pl + (ww - XMIN) / (XMAX - XMIN) * (w - pl - pr); },
+        y: function (f) { return h - pb - f / YMAX * (h - pt - pb); }
+      };
+    }
+
+    var render = makeRenderer(canvas, function (ctx, w, h) {
+      var g = geom(w, h);
+      ctx.clearRect(0, 0, w, h);
+      // 网格
+      ctx.strokeStyle = 'rgba(255,255,255,.05)';
+      ctx.lineWidth = 1;
+      for (var i = -2; i <= 2; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(g.x(i), g.pt);
+        ctx.lineTo(g.x(i), h - g.pb + 4);
+        ctx.stroke();
+      }
+      // 曲线区域
+      var i2, ww, px, py;
+      ctx.beginPath();
+      for (i2 = 0; i2 <= 160; i2++) {
+        ww = XMIN + (XMAX - XMIN) * i2 / 160;
+        px = g.x(ww); py = g.y(FW(ww));
+        if (i2 === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      var grad = ctx.createLinearGradient(0, g.pt, 0, h - g.pb);
+      grad.addColorStop(0, 'rgba(242,179,76,.20)');
+      grad.addColorStop(1, 'rgba(242,179,76,.015)');
+      ctx.lineTo(g.x(XMAX), h - g.pb);
+      ctx.lineTo(g.x(XMIN), h - g.pb);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // 曲线
+      ctx.beginPath();
+      for (i2 = 0; i2 <= 160; i2++) {
+        ww = XMIN + (XMAX - XMIN) * i2 / 160;
+        px = g.x(ww); py = g.y(FW(ww));
+        if (i2 === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = 'rgba(242,179,76,.7)';
+      ctx.lineWidth = 2.1;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      // 谷底
+      ctx.beginPath();
+      ctx.arc(g.x(0), g.y(0), 3, 0, TAU);
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      ctx.fill();
+      ctx.font = '9.5px Consolas, monospace';
+      ctx.fillStyle = 'rgba(255,255,255,.42)';
+      ctx.textAlign = 'left';
+      ctx.fillText('谷底', g.x(0) + 7, g.y(0) - 4);
+
+      // 轨迹
+      for (var t = 0; t < v.trail.length; t++) {
+        var tw = v.trail[t];
+        if (tw < XMIN || tw > XMAX) continue;
+        ctx.beginPath();
+        ctx.arc(g.x(tw), g.y(FW(tw)), 2.4, 0, TAU);
+        ctx.fillStyle = 'rgba(78,205,196,.42)';
+        ctx.fill();
+      }
+
+      var cw = clamp(v.w, XMIN, XMAX);
+      var cx = g.x(cw), cy = g.y(FW(cw));
+
+      // 切线
+      var slope = DW(cw);
+      var pxPerX = (w - g.pl - g.pr) / (XMAX - XMIN);
+      var pxPerY = (h - g.pt - g.pb) / YMAX;
+      var screenSlope = -slope * pxPerY / pxPerX;
+      var dx = 58;
+      ctx.beginPath();
+      ctx.moveTo(cx - dx, cy - screenSlope * dx);
+      ctx.lineTo(cx + dx, cy + screenSlope * dx);
+      ctx.strokeStyle = 'rgba(255,255,255,.26)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 小球
+      var glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20);
+      glow.addColorStop(0, 'rgba(242,179,76,.38)');
+      glow.addColorStop(1, 'rgba(242,179,76,0)');
+      ctx.beginPath();
+      ctx.arc(cx, cy, 20, 0, TAU);
+      ctx.fillStyle = glow;
+      ctx.fill();
+
+      var ballGrad = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 9);
+      ballGrad.addColorStop(0, '#ffe3a8');
+      ballGrad.addColorStop(1, '#e09a2e');
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, TAU);
+      ctx.fillStyle = ballGrad;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // 旋转刻度
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(v.angle) * 4.5, cy + Math.sin(v.angle) * 4.5);
+      ctx.lineTo(cx - Math.cos(v.angle) * 4.5, cy - Math.sin(v.angle) * 4.5);
+      ctx.strokeStyle = 'rgba(60,36,8,.55)';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // 坐标标签
+      ctx.font = '9.5px Consolas, monospace';
+      ctx.fillStyle = 'rgba(255,255,255,.34)';
+      ctx.textAlign = 'center';
+      ctx.fillText('−2', g.x(-2), h - 10);
+      ctx.fillText('0', g.x(0), h - 10);
+      ctx.fillText('+2', g.x(2), h - 10);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255,255,255,.28)';
+      ctx.fillText('损失 L(w)', g.pl, 16);
+      ctx.textAlign = 'right';
+      ctx.fillText('参数 w', w - g.pr, h - 10);
+    });
+
+    function hud() {
+      el('s4Grad').textContent = DW(v.w).toFixed(2);
+      el('s4Steps').textContent = v.steps;
+      var s = el('s4State');
+      if (v.done) { s.textContent = '到达谷底'; s.className = 'ok'; }
+      else if (v.animating) { s.textContent = '沿坡下滑'; s.className = 'ok'; }
+      else { s.textContent = '等待出发'; s.className = ''; }
+    }
+
+    function frame(now) {
+      var t = clamp((now - v.t0) / 480, 0, 1);
+      var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      v.w = lerp(v.from, v.to, e);
+      render();
+      hud();
+      if (t < 1) {
+        v.raf = requestAnimationFrame(frame);
+      } else {
+        v.animating = false;
+        setTimeout(function () { if (!document.hidden) step(); }, 130);
+      }
+    }
+
+    function step() {
+      if (v.animating || v.done) return;
+      var g = DW(v.w);
+      if (Math.abs(g) < 0.04 || v.steps >= 18) {
+        v.done = true;
+        hud();
+        return;
+      }
+      var next = clamp(v.w - 0.3 * g, XMIN + 0.06, XMAX - 0.06);
+      v.trail.push(v.w);
+      v.from = v.w;
+      v.to = next;
+      v.t0 = performance.now();
+      v.animating = true;
+      v.steps++;
+      v.angle += (v.from - v.to) * 2.2;
+      hud();
+      v.raf = requestAnimationFrame(frame);
+    }
+
+    function reset() {
+      if (v.raf) { cancelAnimationFrame(v.raf); v.raf = 0; }
+      v.w = 2.35; v.from = 2.35; v.to = 2.35; v.animating = false;
+      v.steps = 0; v.trail = [2.35]; v.done = false; v.angle = 0;
+      render();
+      hud();
+      setTimeout(step, 260);
+    }
+
+    el('s4Reset').addEventListener('click', reset);
+    canvas.addEventListener('click', function (ev) {
+      var rect = canvas.getBoundingClientRect();
+      var px = ev.clientX - rect.left;
+      var ww = clamp(XMIN + (px - 22) / (rect.width - 44) * (XMAX - XMIN), XMIN + 0.1, XMAX - 0.1);
+      if (v.raf) { cancelAnimationFrame(v.raf); v.raf = 0; }
+      v.w = ww; v.from = ww; v.to = ww; v.animating = false; v.done = false;
+      v.steps = 0; v.trail = [ww]; v.angle = 0;
+      render();
+      hud();
+      setTimeout(step, 220);
+    });
+
+    render();
+    hud();
+    onVisible(el('s4'), function () {
+      if (v.started) return;
+      v.started = true;
+      setTimeout(step, 420);
+    });
+  })();
+
+  /* ================= 05 学习率 ================= */
+  (function section5() {
+    var cases = [
+      { lr: 0.03, color: '#4ecdc4', tag: '太慢' },
+      { lr: 0.35, color: '#f2b34c', tag: '合适' },
+      { lr: 0.95, color: '#ff7a66', tag: '震荡' }
+    ];
+    var canvases = [el('lrChart0'), el('lrChart1'), el('lrChart2')];
+    if (!canvases[0]) return;
+    var states = cases.map(function () {
+      return { w: 2.2, trail: [2.2], steps: 0, done: false, div: false };
+    });
+    var XMIN = -3, XMAX = 3, YMAX = 8.8;
+    var timer = null;
+    var started = false;
+
+    var renders = canvases.map(function (canvas, idx) {
+      return makeRenderer(canvas, function (ctx, w, h) {
+        var pl = 14, pr = 12, pt = 13, pb = 18;
+        var X = function (ww) { return pl + (ww - XMIN) / (XMAX - XMIN) * (w - pl - pr); };
+        var Y = function (f) { return h - pb - f / YMAX * (h - pt - pb); };
+        ctx.clearRect(0, 0, w, h);
+        // 曲线
+        ctx.beginPath();
+        for (var i = 0; i <= 120; i++) {
+          var ww = XMIN + (XMAX - XMIN) * i / 120;
+          var px = X(ww), py = Y(FW(ww));
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = 'rgba(242,179,76,.55)';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        // 底
+        ctx.beginPath();
+        ctx.moveTo(pl, h - pb);
+        ctx.lineTo(w - pr, h - pb);
+        ctx.strokeStyle = 'rgba(255,255,255,.09)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // 轨迹线
+        var s = states[idx];
+        ctx.beginPath();
+        for (var t = 0; t < s.trail.length; t++) {
+          var tw = clamp(s.trail[t], XMIN, XMAX);
+          var tx = X(tw), ty = Y(FW(tw));
+          if (t === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+        }
+        ctx.strokeStyle = hexA(cases[idx].color, 0.55);
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // 点
+        for (var d = 0; d < s.trail.length; d++) {
+          var ttw = clamp(s.trail[d], XMIN, XMAX);
+          ctx.beginPath();
+          ctx.arc(X(ttw), Y(FW(ttw)), 1.7, 0, TAU);
+          ctx.fillStyle = hexA(cases[idx].color, 0.32);
+          ctx.fill();
+        }
+        // 起点
+        ctx.beginPath();
+        ctx.arc(X(2.2), Y(FW(2.2)), 2.6, 0, TAU);
+        ctx.strokeStyle = 'rgba(255,255,255,.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // 球
+        var cw = clamp(s.w, XMIN, XMAX);
+        var bx = X(cw), by = Y(FW(cw));
+        ctx.beginPath();
+        ctx.arc(bx, by, 14, 0, TAU);
+        ctx.fillStyle = hexA(cases[idx].color, 0.13);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(bx, by, 5.2, 0, TAU);
+        ctx.fillStyle = cases[idx].color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.3)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      });
+    });
+
+    function statuses() {
+      for (var i = 0; i < states.length; i++) {
+        var s = states[i];
+        var node = el('lrSteps' + i);
+        if (!node) continue;
+        if (s.div) {
+          node.textContent = '第 ' + s.steps + ' 步 · 冲出边界，发散';
+          node.style.color = '#ff9a8a';
+        } else if (s.done && Math.abs(DW(s.w)) < 0.2) {
+          node.textContent = '第 ' + s.steps + ' 步 · 到达谷底';
+          node.style.color = 'rgba(78,205,196,.92)';
+        } else if (s.done) {
+          node.textContent = s.steps + ' 步后还在 w=' + s.w.toFixed(2);
+          node.style.color = '#7f8ca0';
+        } else {
+          node.textContent = '第 ' + s.steps + ' 步 · w = ' + s.w.toFixed(2);
+          node.style.color = '';
+        }
+      }
+    }
+
+    function tick() {
+      var allDone = true;
+      for (var i = 0; i < states.length; i++) {
+        var s = states[i];
+        if (s.done) continue;
+        allDone = false;
+        var g = DW(s.w);
+        var next = s.w - cases[i].lr * g;
+        s.trail.push(next);
+        s.steps++;
+        if (!isFinite(next) || Math.abs(next) > 3.25) {
+          s.div = true;
+          s.done = true;
+          s.w = clamp(next, -3.1, 3.1);
+        } else {
+          s.w = next;
+          if (Math.abs(g) < 0.03 || s.steps >= 16) s.done = true;
+        }
+      }
+      for (var r = 0; r < renders.length; r++) renders[r]();
+      statuses();
+      if (allDone && timer) { clearInterval(timer); timer = null; }
+    }
+
+    function start() {
+      if (timer) clearInterval(timer);
+      timer = setInterval(tick, 330);
+    }
+
+    function reset() {
+      if (timer) { clearInterval(timer); timer = null; }
+      states = cases.map(function () {
+        return { w: 2.2, trail: [2.2], steps: 0, done: false, div: false };
+      });
+      for (var r = 0; r < renders.length; r++) renders[r]();
+      statuses();
+      start();
+    }
+
+    el('s5Replay').addEventListener('click', reset);
+    for (var r = 0; r < renders.length; r++) { renders[r](); }
+    statuses();
+    onVisible(el('s5'), function () {
+      if (started) return;
+      started = true;
+      start();
+    });
+  })();
+
+  /* ================= 图表（loss / acc） ================= */
+  function drawSeries(ctx, w, h, cfg) {
+    var compact = !!cfg.compact;
+    var padL = compact ? 30 : 42, padR = compact ? 8 : 14;
+    var padT = compact ? 8 : 16, padB = compact ? 12 : 24;
+    var data = cfg.data || [];
+    var iw = w - padL - padR, ih = h - padT - padB;
+    ctx.clearRect(0, 0, w, h);
+    if (data.length < 2 || iw <= 0 || ih <= 0) return;
+    var yMin = (cfg.yMin === undefined) ? 0 : cfg.yMin;
+    var yMax = (cfg.yMax === undefined) ? 1 : cfg.yMax;
+    if (yMax - yMin < 1e-6) yMax = yMin + 1;
+    var ticks = compact ? 2 : 4;
+    var fmt = cfg.fmt || function (v) { return v.toFixed(2); };
+
+    ctx.font = '9.5px Consolas, monospace';
+    ctx.lineWidth = 1;
+    for (var i = 0; i <= ticks; i++) {
+      var yy = padT + ih * i / ticks;
+      ctx.beginPath();
+      ctx.moveTo(padL, yy);
+      ctx.lineTo(w - padR, yy);
+      ctx.strokeStyle = i === ticks ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.055)';
+      ctx.stroke();
+      var val = yMax - (yMax - yMin) * i / ticks;
+      ctx.fillStyle = 'rgba(140,152,171,.62)';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(fmt(val), padL - 7, yy);
+    }
+    if (!compact) {
+      ctx.fillStyle = 'rgba(110,122,140,.62)';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('0', padL, h - padB + 8);
+      ctx.textAlign = 'right';
+      ctx.fillText(data.length + ' 轮', w - padR, h - padB + 8);
+    }
+
+    var n = data.length;
+    var progress = (cfg.progress === undefined) ? 1 : clamp(cfg.progress, 0, 1);
+    var count = Math.max(2, Math.min(n, Math.round(progress * (n - 1)) + 1));
+    var X = function (idx) { return padL + iw * idx / (n - 1); };
+    var Y = function (v) { return padT + ih * (1 - (v - yMin) / (yMax - yMin)); };
+    var color = cfg.color || '#f2b34c';
+
+    // 面积
+    ctx.beginPath();
+    ctx.moveTo(X(0), padT + ih);
+    for (var p = 0; p < count; p++) ctx.lineTo(X(p), Y(data[p]));
+    ctx.lineTo(X(count - 1), padT + ih);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ih);
+    grad.addColorStop(0, hexA(color, 0.20));
+    grad.addColorStop(1, hexA(color, 0));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 线
+    ctx.beginPath();
+    for (var q = 0; q < count; q++) {
+      if (q === 0) ctx.moveTo(X(q), Y(data[q]));
+      else ctx.lineTo(X(q), Y(data[q]));
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = hexA(color, 0.5);
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // 端点
+    var ex = X(count - 1), ey = Y(data[count - 1]);
+    ctx.beginPath();
+    ctx.arc(ex, ey, 3, 0, TAU);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(ex, ey, 7, 0, TAU);
+    ctx.strokeStyle = hexA(color, 0.25);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  var sixCancel = null;
+  var sixStarted = false;
+
+  function playSix() {
+    if (sixCancel) sixCancel();
+    sixCancel = animate(1700, function (t) {
+      var e = 1 - Math.pow(1 - t, 3);
+      lossChart.setProgress(e);
+      accChart.setProgress(e);
+    }, function () { sixCancel = null; });
+  }
+
+  function makeChart(canvas, getCfg) {
+    var progress = 1;
+    var redraw = makeRenderer(canvas, function (ctx, w, h) {
+      var cfg = getCfg();
+      cfg.progress = progress;
+      drawSeries(ctx, w, h, cfg);
+    });
+    return {
+      setProgress: function (p) { progress = p; redraw(); },
+      redraw: redraw
+    };
+  }
+
+  var lossChart = makeChart(el('lossChart'), function () {
+    var d = mainHist.loss;
+    return {
+      data: d, color: '#ff7a66', yMin: 0,
+      yMax: Math.max(0.8, Math.max.apply(null, d) * 1.05),
+      fmt: function (v) { return v.toFixed(2); }
+    };
+  });
+
+  var accChart = makeChart(el('accChart'), function () {
+    return {
+      data: mainHist.acc, color: '#4ecdc4', yMin: 0.2, yMax: 1,
+      fmt: function (v) { return (v * 100).toFixed(0) + '%'; }
+    };
+  });
+
+  function refreshStats() {
+    var lastLoss = mainHist.loss[mainHist.loss.length - 1];
+    var lastAcc = mainHist.acc[mainHist.acc.length - 1];
+    if (el('sixStat')) el('sixStat').textContent = '测试准确率 ' + (lastAcc * 100).toFixed(1) + '%';
+    if (el('sevenStats')) el('sevenStats').textContent = '240 轮 · loss ' + lastLoss.toFixed(3) + ' · 测试 ' + (lastAcc * 100).toFixed(1) + '%';
+  }
+
+  /* ================= 07 参数可视化 ================= */
+  var heatDraw = makeRenderer(el('heatmap'), function (ctx, w, h) {
+    ctx.clearRect(0, 0, w, h);
+    var H = mainModel.H, p = mainModel.p;
+    var left = 30, right = 8, top = 24, bottom = 32;
+    var cw = (w - left - right) / 2;
+    var ch = (h - top - bottom) / H;
+    if (cw <= 0 || ch <= 0) return;
+    ctx.font = '9.5px Consolas, monospace';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(150,162,180,.75)';
+    ctx.fillText('x₁', left + cw * 0.5, 13);
+    ctx.fillText('x₂', left + cw * 1.5, 13);
+
+    for (var k = 0; k < H; k++) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(120,132,150,.6)';
+      ctx.fillText('h' + (k + 1), left - 6, top + ch * (k + 0.5));
+      for (var f = 0; f < 2; f++) {
+        var v = p[k * 2 + f];
+        var t = clamp(v / 1.8, -1, 1);
+        var r, g, b;
+        if (t >= 0) {
+          r = Math.round(lerp(27, 242, t));
+          g = Math.round(lerp(35, 179, t));
+          b = Math.round(lerp(45, 76, t));
+        } else {
+          var a = -t;
+          r = Math.round(lerp(27, 78, a));
+          g = Math.round(lerp(35, 205, a));
+          b = Math.round(lerp(45, 196, a));
+        }
+        ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+        var rx = left + f * cw + 1.5;
+        var ry = top + k * ch + 1;
+        ctx.fillRect(rx, ry, cw - 3, ch - 2);
+      }
+    }
+    // 图例
+    var lx = left, ly = h - 12;
+    var lw = Math.min(96, w - left - right);
+    var lg = ctx.createLinearGradient(lx, 0, lx + lw, 0);
+    lg.addColorStop(0, '#4ecdc4');
+    lg.addColorStop(0.5, '#1b222c');
+    lg.addColorStop(1, '#f2b34c');
+    ctx.fillStyle = lg;
+    ctx.fillRect(lx, ly, lw, 4);
+    ctx.font = '8.5px Consolas, monospace';
+    ctx.fillStyle = 'rgba(130,142,160,.7)';
+    ctx.textAlign = 'left';
+    ctx.fillText('−', lx, ly - 7);
+    ctx.textAlign = 'right';
+    ctx.fillText('+', lx + lw, ly - 7);
+  });
+
+  var histDraw = makeRenderer(el('hist'), function (ctx, w, h) {
+    ctx.clearRect(0, 0, w, h);
+    var vals = Array.prototype.slice.call(mainModel.p);
+    var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+    var span = (mx - mn) || 1;
+    var bins = new Array(10).fill(0);
+    for (var i = 0; i < vals.length; i++) {
+      var bi = Math.min(9, Math.floor((vals[i] - mn) / span * 10));
+      bins[bi]++;
+    }
+    var maxCount = Math.max.apply(null, bins);
+    var padL = 8, padR = 8, padT = 12, padB = 22;
+    var bw = (w - padL - padR) / bins.length;
+    var ih = h - padT - padB;
+    // 基线
+    ctx.strokeStyle = 'rgba(255,255,255,.10)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, h - padB);
+    ctx.lineTo(w - padR, h - padB);
+    ctx.stroke();
+    for (var b = 0; b < bins.length; b++) {
+      var bh = maxCount ? (bins[b] / maxCount) * ih : 0;
+      var x = padL + b * bw + 1.5;
+      var y = h - padB - bh;
+      var g = ctx.createLinearGradient(0, y, 0, h - padB);
+      g.addColorStop(0, 'rgba(242,179,76,.85)');
+      g.addColorStop(1, 'rgba(242,179,76,.18)');
+      ctx.fillStyle = bins[b] ? g : 'rgba(255,255,255,.06)';
+      ctx.fillRect(x, y, bw - 3, Math.max(bh, 1.5));
+    }
+    // 零线
+    if (mn <= 0 && mx >= 0) {
+      var zx = padL + (0 - mn) / span * (w - padL - padR);
+      ctx.beginPath();
+      ctx.moveTo(zx, padT);
+      ctx.lineTo(zx, h - padB);
+      ctx.strokeStyle = 'rgba(255,255,255,.22)';
+      ctx.setLineDash([3, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // 均值与 ±σ
+    var mean = vals.reduce(function (a, b2) { return a + b2; }, 0) / vals.length;
+    var sd = Math.sqrt(vals.reduce(function (a, b2) { return a + (b2 - mean) * (b2 - mean); }, 0) / vals.length);
+    var mxPos = padL + (mean - mn) / span * (w - padL - padR);
+    ctx.beginPath();
+    ctx.moveTo(mxPos, padT);
+    ctx.lineTo(mxPos, h - padB);
+    ctx.strokeStyle = 'rgba(78,205,196,.7)';
+    ctx.setLineDash([2, 4]);
+    ctx.stroke();
+    [mean - sd, mean + sd].forEach(function (edge) {
+      if (edge < mn || edge > mx) return;
+      var ex = padL + (edge - mn) / span * (w - padL - padR);
+      ctx.beginPath();
+      ctx.moveTo(ex, padT + 4);
+      ctx.lineTo(ex, h - padB);
+      ctx.strokeStyle = 'rgba(78,205,196,.22)';
+      ctx.setLineDash([2, 5]);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    // 标签
+    ctx.font = '8.5px Consolas, monospace';
+    ctx.fillStyle = 'rgba(125,138,156,.7)';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillText('μ=' + mean.toFixed(2), padL, h - 14);
+    ctx.textAlign = 'right';
+    ctx.fillText('n=' + vals.length, w - padR, h - 14);
+  });
+
+  function drawBoundaryCanvas(ctx, w, h, model, data, opt) {
+    if (!model) return;
+    opt = opt || {};
+    var pad = opt.pad === undefined ? 10 : opt.pad;
+    var cell = opt.cell || 6;
+    var plotW = w - pad * 2, plotH = h - pad * 2;
+    var range = 1.22;
+    if (plotW <= 0 || plotH <= 0) return;
+    var toPx = function (x) { return pad + (x + range) / (range * 2) * plotW; };
+    var toPy = function (y) { return h - pad - (y + range) / (range * 2) * plotH; };
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pad, pad, plotW, plotH);
+    ctx.clip();
+    ctx.fillStyle = '#080c11';
+    ctx.fillRect(pad, pad, plotW, plotH);
+    for (var py = pad; py < h - pad; py += cell) {
+      for (var px = pad; px < w - pad; px += cell) {
+        var x = ((px + cell / 2 - pad) / plotW) * range * 2 - range;
+        var y = ((h - pad - (py + cell / 2)) / plotH) * range * 2 - range;
+        var t = model.predict(x, y);
+        var r = Math.round(lerp(52, 242, t));
+        var g = Math.round(lerp(196, 179, t));
+        var b = Math.round(lerp(182, 76, t));
+        ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',0.42)';
+        ctx.fillRect(px, py, cell, cell);
+      }
+    }
+    for (var i = 0; i < data.length; i++) {
+      var d = data[i];
+      ctx.beginPath();
+      ctx.arc(toPx(d.x), toPy(d.y), 2.1, 0, TAU);
+      ctx.fillStyle = d.label ? 'rgba(255,222,168,.92)' : 'rgba(190,250,244,.9)';
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,.10)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(pad + 0.5, pad + 0.5, plotW - 1, plotH - 1);
+  }
+
+  var boundaryDraw = makeRenderer(el('boundary'), function (ctx, w, h) {
+    drawBoundaryCanvas(ctx, w, h, mainModel, TRAIN, { cell: 6, pad: 8 });
+  });
+
+  function renderSeven() {
+    heatDraw();
+    histDraw();
+    boundaryDraw();
+  }
+
+  refreshStats();
+  lossChart.setProgress(1);
+  accChart.setProgress(1);
+  renderSeven();
+
+  onVisible(el('s6'), function () {
+    if (sixStarted) return;
+    sixStarted = true;
+    sixCancel = null;
+    playSix();
+  });
+
+  el('retrain').addEventListener('click', function () {
+    fitMain();
+    refreshStats();
+    renderSeven();
+    sixStarted = true;
+    playSix();
+  });
+
+  /* ================= 09 沙盒 ================= */
+  (function sandbox() {
+    var boundaryCanvas = el('sbBoundary');
+    var lossCanvasEl = el('sbLossChart');
+    if (!boundaryCanvas) return;
+    var sb = { model: createModel(HIDDEN), epoch: 0, hist: [], running: false, lr: 0.06, raf: 0, max: 420, started: false };
+
+    var sbBoundary = makeRenderer(boundaryCanvas, function (ctx, w, h) {
+      drawBoundaryCanvas(ctx, w, h, sb.model, TRAIN, { cell: 7, pad: 8 });
+    });
+
+    var sbLoss = makeChart(lossCanvasEl, function () {
+      return {
+        data: sb.hist, color: '#f2b34c', yMin: 0,
+        yMax: Math.max(0.8, Math.max.apply(null, sb.hist.length ? sb.hist : [0.8]) * 1.05),
+        fmt: function (v) { return v.toFixed(2); },
+        compact: true
+      };
+    });
+
+    function updateStats() {
+      el('sbEpoch').textContent = sb.epoch;
+      el('sbLoss').textContent = sb.hist.length ? sb.hist[sb.hist.length - 1].toFixed(3) : '—';
+      el('sbAcc').textContent = (evaluate(sb.model, TEST) * 100).toFixed(1) + '%';
+      el('sbStatus').textContent = sb.running ? '训练中' : (sb.epoch >= sb.max ? '完成' : '暂停');
+    }
+
+    function reset() {
+      sb.running = false;
+      if (sb.raf) cancelAnimationFrame(sb.raf);
+      sb.model = createModel(HIDDEN);
+      sb.epoch = 0;
+      sb.hist = [];
+      sb.raf = 0;
+      el('sbToggle').textContent = '开始训练';
+      sbBoundary();
+      sbLoss.redraw();
+      updateStats();
+    }
+
+    function loop() {
+      if (!sb.running) return;
+      var r;
+      for (var i = 0; i < 2 && sb.epoch < sb.max; i++) {
+        r = sb.model.trainEpoch(TRAIN, sb.lr);
+        sb.epoch++;
+        sb.hist.push(r.loss);
+      }
+      if (sb.epoch % 6 === 0 || sb.epoch >= sb.max) {
+        sbLoss.redraw();
+        updateStats();
+      }
+      if (sb.epoch % 12 === 0 || sb.epoch >= sb.max) sbBoundary();
+      if (sb.epoch >= sb.max) {
+        sb.running = false;
+        el('sbToggle').textContent = '重新开始';
+        updateStats();
+        return;
+      }
+      sb.raf = requestAnimationFrame(loop);
+    }
+
+    function start() {
+      if (sb.running) return;
+      if (sb.epoch >= sb.max) { reset(); }
+      sb.running = true;
+      el('sbToggle').textContent = '暂停';
+      updateStats();
+      sb.raf = requestAnimationFrame(loop);
+    }
+
+    function pause() {
+      sb.running = false;
+      if (sb.raf) cancelAnimationFrame(sb.raf);
+      el('sbToggle').textContent = '继续';
+      updateStats();
+    }
+
+    el('sbToggle').addEventListener('click', function () {
+      if (sb.running) pause();
+      else start();
+    });
+    el('sbReset').addEventListener('click', reset);
+    el('sbLr').addEventListener('input', function () {
+      sb.lr = parseFloat(this.value);
+      el('sbLrVal').textContent = sb.lr.toFixed(3);
+    });
+
+    reset();
+    onVisible(el('s9'), function () {
+      if (sb.started) return;
+      sb.started = true;
+      start();
+    });
+  })();
+
+  /* ================= 页面交互 ================= */
+  (function pageFx() {
+    var bar = el('progressBar');
+    document.documentElement.classList.add('js-reveal');
+    function onScroll() {
+      var max = document.documentElement.scrollHeight - window.innerHeight;
+      var pct = max > 0 ? window.scrollY / max * 100 : 0;
+      if (bar) bar.style.width = pct.toFixed(2) + '%';
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    var items = document.querySelectorAll('.reveal');
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in');
+            io.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.12 });
+      Array.prototype.forEach.call(items, function (node) { io.observe(node); });
+    } else {
+      Array.prototype.forEach.call(items, function (node) { node.classList.add('in'); });
+    }
+
+    var heroEpoch = el('heroEpoch');
+    if (heroEpoch) {
+      var n = 237;
+      setInterval(function () {
+        n = (n + 1) % 300;
+        heroEpoch.textContent = 'epoch ' + n;
+      }, 2400);
+    }
+  })();
+})();
+</script>
+</body>
+</html>
